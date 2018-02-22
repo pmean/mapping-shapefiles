@@ -1,0 +1,35 @@
+---
+title: "Mapping congressional districts"
+author: "Steve Simon"
+date: "February 22, 2018"
+output: html_document
+---
+
+```{r prelims}
+library(rgdal)
+library(maptools)
+library(ggmap)
+```
+
+I have gotten some help from the Combining Spatial Data vignette, written by Roger Bivand, March 25, 2017.
+
+```{r read}
+path_name <- "~/mapping-shapefiles/shp"
+list.files(path_name)
+path_name <- "C:/Users/steve/Documents/R/win-library/3.4/maptools/shapes"
+list.files(path_name)
+```
+
+```{r read-part2}
+file_name <- "cb_2016_us_cd115_500k.shp"
+file_name <- "Townships"
+file_name <- "co37_d90"
+x <- readShapeSpatial(paste(path_name, file_name, sep="/"))
+proj4string(x) <- CRS("+proj=longlat +datum=NAD27")
+# x <- readOGR(path_name, file_name)
+# y <- spTransform(x, CRS("+proj=longlat +datum=WGS84"))
+# z <- fortify(y)
+names(x)
+z <- fortify(x)
+str(z)
+```
