@@ -6,30 +6,303 @@ output: html_document
 ---
 
 ```{r prelims}
-library(rgdal)
-library(maptools)
 library(ggmap)
+library(magrittr)
+library(maptools)
+library(rvest)
+library(sf)
+library(tidyverse)
+library(viridis)
 ```
 
-I have gotten some help from the Combining Spatial Data vignette, written by Roger Bivand, March 25, 2017.
+I have gotten some help from 
+
+Roger Bivand. Combining Spatial Data vignette. March 25, 2017. Available at
+https://cran.r-project.org/web/packages/maptools/vignettes/combine_maptools.pdf
+
+Matt Strimas-Mackey. Tidy Spatial Data in R, Using dplyr, tidyr, and ggplot2 with sf. March 9, 2017. Available at http://strimas.com/r/tidy-sf/
+
+Edzer Pebesma. Spatial Data in R: New Directions. July 4, 2017. Available at https://edzer.github.io/UseR2017/
+
+Simple Features for R. Available at https://cran.r-project.org/web/packages/sf/vignettes/sf1.html
+
+Manipulating Simple Feature Geometries. Available at
+https://cran.r-project.org/web/packages/sf/vignettes/sf3.html
+
+Melanie Frazier. Overview of Coordinate Reference Systems (CRS) in R.
+
+The file used in this example, cb_2016_us_cd115_500k.shp, was downloaded from https://www.census.gov/geo/maps-data/data/cbf/cbf_cds.html.
+
+The 500K means that the scale is 1:500,000 which is the highest resolution available.
 
 ```{r read}
 path_name <- "~/mapping-shapefiles/shp"
 list.files(path_name)
-path_name <- "C:/Users/steve/Documents/R/win-library/3.4/maptools/shapes"
-list.files(path_name)
+file_name <- "cb_2016_us_cd115_500k.shp"
+all_districts <- st_read(paste(path_name, file_name, sep="/"))
+names(all_districts)
 ```
 
-```{r read-part2}
-file_name <- "cb_2016_us_cd115_500k.shp"
-file_name <- "Townships"
-file_name <- "co37_d90"
-x <- readShapeSpatial(paste(path_name, file_name, sep="/"))
-proj4string(x) <- CRS("+proj=longlat +datum=NAD27")
-# x <- readOGR(path_name, file_name)
-# y <- spTransform(x, CRS("+proj=longlat +datum=WGS84"))
-# z <- fortify(y)
-names(x)
-z <- fortify(x)
-str(z)
+We'll start by looking at a congressional district in southern Louisiana, mostly because it has an interesting shape.
+
+```{r extract}
+la01 <- "2201"
+all_districts                          %>%
+  filter(GEOID==la01)                  %>%
+  st_coordinates                       -> geo_matrix
+
+head(geo_matrix)
+par(pty="s")
+plot(geo_matrix, type="l")
 ```
+
+If you plot the matrix, you get a distorted picture because a degree of latitude does not represent the same distances as a degree of longitude. At the higher latitudes (closer to the north or south pole), the lines of longitude come closer together. So you need to adjust the longitude to insure that east-west distances and north-south distances appear the same.
+
+```{r fix}
+convert_to_meters <- function(mat) {
+  radius_earth <- 6371000
+  perimeter_earth <- 2*pi*radius_earth
+  degree_latitude <- perimeter_earth / 360
+  meters_latitude <- mat[, "Y"]*degree_latitude
+  degree_longitude <- degree_latitude*cos(mat[1, "Y"]*pi/180)
+  meters_longitude <- mat[, "X"]*degree_longitude
+  return(data.frame(X=meters_longitude, Y=meters_latitude))
+}
+geo_matrix %>% convert_to_meters -> meter_matrix
+
+par(pty="s")
+plot(meter_matrix, type="l")
+```
+
+There are a bunch of islands and the stray diagonal lines occur when the district transitions from one island to another or to the mainlaind.
+
+```{r fix-stray-lines}
+par(pty="s")
+plot(meter_matrix, type="n")
+for (i in 1:max(geo_matrix[, "L2"])) {
+  lines(meter_matrix[geo_matrix[, "L2"]==i,])
+}
+
+```
+
+Calculating the perimeter is tricky when you have multiple polygons. You don't want to count the length of the stray lines when you jump from one island to another.
+
+```{r calculate-distance}
+cycle <- function(x) {
+  n <- length(x)
+  return(x[c(2:n, 1)])
+}
+n <- dim(geo_matrix)[1]
+dx <- rep(NA, n)
+dy <- rep(NA, n)
+for (i in 1:max(geo_matrix[, "L2"])) {
+  ni <- which(geo_matrix[, "L2"]==i)
+  dx[ni] <- meter_matrix[ni, "X"] - meter_matrix[cycle(ni), "X"] 
+  dy[ni] <- meter_matrix[ni, "Y"] - meter_matrix[cycle(ni), "Y"] 
+}
+sum(sqrt(dx^2+dy^2))
+
+```
+
+It's best just to let R handle all these details. The sf library has several built in functions to handle geographic data. The st_length function will give you the perimeter of congressional district, allowing for separate islands. It is actually a bit more accurate than my earlier hand calculations, partly because is uses a "great circle" method to calculate distances and partly because it accounts for the fact that the earth is not a perfect sphere (it bulges out near the equator).
+
+Notice how ggplot2 recognizes the geographic information and produces a nice looking graph with very little effort.
+
+WARNING!! The geom_sf function in ggplot2 is experimental and not yet part of the regular package (at least not at the time I wrote this, February 2018). You have to install a special version of ggplot2 using the RTools package. For details, go to
+
+https://dcl-2017-01.github.io/curriculum/notes/spatial-vis.html
+
+and note the installation instructions at the very top of the page.
+
+```{r built-in-tools}
+all_districts                          %>%
+  filter(GEOID==la01)                  %>%
+  st_length                            %>%
+  divide_by(1000)                      %>%
+  round                                %>%
+  format(big.mark=",")                 %>%
+  paste0("District", .)                %>%
+  paste0(la01, .)                      %>%
+  paste0(" has a perimeter of ", .)    -> title_string
+all_districts                          %>%
+  filter(GEOID==la01)                  %>%
+  ggplot()                              +
+  geom_sf(fill="gray")                  +
+  ggtitle(title_string)
+```
+
+Let's do something interesting with the congressional district data. There's been a lot of news about gerrymandering.
+
+The ratio of the area to the perimeter squared is a simple measure of how irregular a Congressional district is. You multiply by the constant 4*pi so that the most simple geometric shape, a circle, has a ratio of 1. With this normalization constant, every shape other than a circle has a ratio less than one. 
+
+```{r calculate-ratio}
+all_districts$area <- st_area(all_districts)
+all_districts$perimeter <- st_length(all_districts)
+all_districts %<>% mutate(ratio=4*pi*area/perimeter^2) %>% arrange(ratio)
+```
+
+Here is a simple graph that displays all the Congressional districts in a state, with one particular Congressional district highlighted.
+
+I want to pay special attention to the districts in Pennsylvania because they have been in the news a lot. The FIPS code for PA is 42.
+
+```{r district-graphs}
+highlight_district <- function(district_number) {
+  state_fips_code <- substr(district_number, 1, 2)
+  district_string <- as.character(district_number)
+  all_districts                          %>%
+    mutate(fill_color=
+      ifelse(GEOID==district_number,
+        district_string, "others"))      -> single_district
+  single_district                        %>%
+    filter(fill_color==1)                %>%
+    use_series(geometry)                 %>%
+    st_area                              -> district_area
+  d <<- district_area
+  print(district_area)
+  single_district                        %>%
+    filter(STATEFP==state_fips_code)     %>%
+    ggplot()                              +
+    geom_sf(aes(fill=fill_color))         +
+    scale_fill_manual(
+      values=c("gray", "white"))          +
+    ggtitle(district_string)              +
+    theme(legend.position="none")
+}
+```
+
+Let's start by plotting the district with the lowest area/perimeter ratio.
+
+```{r worst-case}
+all_districts                          %>%
+  top_n(-10)                           %>%
+  use_series(GEOID)                    %>%
+  as.character                         -> worst_districts
+
+highlight_district(worst_districts[2])
+```
+
+```{r more-cases}
+highlight_district("3901")
+highlight_district("2403")
+highlight_district("2201")
+```
+
+```{r interior-district-graphs}
+highlight_interior <- function(district_number) {
+  state_fips_code <- substr(district_number, 1, 2)
+  district_string <- as.character(district_number)
+  all_districts                          %>%
+    mutate(fill_color=
+      ifelse(GEOID==district_number,
+        district_string, "others"))      -> single_district
+  single_district                        %>%
+    filter(fill_color==1)                %>%
+    use_series(geometry)                 %>%
+    st_area                              -> district_area
+  d <<- district_area
+  print(district_area)
+  single_district                        %>%
+    filter(STATEFP==state_fips_code)     %>%
+    ggplot()                              +
+    geom_sf(aes(fill=fill_color))         +
+    scale_fill_manual(
+      values=c("gray", "white"))          +
+    ggtitle(district_string)              +
+    theme(legend.position="none")
+}
+```
+
+You can convert from latitude/longitude to meters north/south and east/west using the ESPG:2264 transform.
+
+Experiment with transforms.
+
+```{r transforms}
+m <- st_transform(all_districts, 2264)
+
+m %>%
+  filter(GEOID==4208) %>%
+  ggplot() +
+  geom_sf(fill="gray")
+
+# (floor((long + 180)/6) %% 60) + 1 to get UTM zone.
+# EPSG:2264
+# st_make_grid, st_segmentize, st_coordinates
+```
+
+```{r more}
+m %>%
+  filter(GEOID==4208) %>%
+  st_coordinates %>%
+  dim
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_segmentize(500) %>%
+  st_coordinates %>%
+  dim
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_segmentize(50) %>%
+  st_coordinates %>%
+  dim
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_segmentize(5) %>%
+  st_coordinates %>%
+  dim
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_segmentize(500) %>%
+  st_coordinates %>%
+  plot(pch=".",col="gray")
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_coordinates %>%
+  points(col="red", pch=".", cex=3)
+
+
+calculate_distance <- function(geo_mat) {
+  n <- dim(geo_mat)[1]
+  dx <- geo_mat[, 1]-geo_mat[c(2:n, 1), 1]  
+  dy <- geo_mat[, 2]-geo_mat[c(2:n, 1), 2]  
+  sum((dx^2+dy^2)^0.5)/1000
+}
+
+all_districts %>%
+  filter(GEOID==4208) %>%
+  st_length
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_coordinates %>%
+  calculate_distance
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_segmentize(5) %>%
+  st_coordinates %>%
+  calculate_distance
+
+halve <- function(x, pow) {
+  n <- dim(x)[1]
+  i <- seq(1, n, by=2^pow)
+  x[i, ]
+}
+
+m %>%
+  filter(GEOID==4208) %>%
+  st_segmentize(5) %>%
+  st_coordinates %>%
+  halve(1) %>%
+  calculate_distance
+
+```
+
+Save everything for possible later use.
+
+```{r save-everything}
+save.image("~/mapping-shapefiles/data/congress.RData")
