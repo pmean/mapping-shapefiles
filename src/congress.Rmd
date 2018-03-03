@@ -7,6 +7,7 @@ output: html_document
 
 ```{r prelims}
 library(ggmap)
+library(ggplot2)
 library(magrittr)
 library(maptools)
 library(rvest)
@@ -39,7 +40,9 @@ The 500K means that the scale is 1:500,000 which is the highest resolution avail
 path_name <- "~/mapping-shapefiles/shp"
 list.files(path_name)
 file_name <- "cb_2016_us_cd115_500k.shp"
-all_districts <- st_read(paste(path_name, file_name, sep="/"))
+path_name                              %>%
+  paste(file_name, sep="/")            %>%
+  st_read(stringsAsFactors=FALSE)      -> all_districts
 names(all_districts)
 ```
 
@@ -178,115 +181,94 @@ all_districts                          %>%
   use_series(GEOID)                    %>%
   as.character                         -> worst_districts
 
-highlight_district(worst_districts[2])
+highlight_district(worst_districts[1])
 ```
 
-```{r more-cases}
-highlight_district("3901")
-highlight_district("2403")
-highlight_district("2201")
+Surprise, it's Alaska, which has only one Congressional district. Since gerrymandering is impossible in states like Alaska, you need to remove them before further analysis.
+
+```{r remove-single-rep-states}
+all_districts                            %>%
+  group_by(STATEFP)                      %>%
+  summarize(n=n())                       %>%
+  filter(n>1)                            %>%
+  use_series(STATEFP)                    -> multirep_states
+
+all_districts                          %>%
+  filter(STATEFP %in% multirep_states) %>%
+  arrange(ratio)                       -> multirep_districts
+
+multirep_districts                     %>%
+  top_n(-10)                           %>%
+  use_series(GEOID)                    %>%
+  as.character                         -> worst_districts
+
+highlight_district(worst_districts[1])
 ```
 
-```{r interior-district-graphs}
-highlight_interior <- function(district_number) {
-  state_fips_code <- substr(district_number, 1, 2)
-  district_string <- as.character(district_number)
-  all_districts                          %>%
-    mutate(fill_color=
-      ifelse(GEOID==district_number,
-        district_string, "others"))      -> single_district
-  single_district                        %>%
-    filter(fill_color==1)                %>%
-    use_series(geometry)                 %>%
-    st_area                              -> district_area
-  d <<- district_area
-  print(district_area)
-  single_district                        %>%
-    filter(STATEFP==state_fips_code)     %>%
-    ggplot()                              +
-    geom_sf(aes(fill=fill_color))         +
-    scale_fill_manual(
-      values=c("gray", "white"))          +
-    ggtitle(district_string)              +
-    theme(legend.position="none")
+Well, that's a very irregular shaped district, but at least half of the irregular shape was the coastline, which was drawn not by the legislatures, but by God. I would not think of accusing God of gerrymandering.
+
+A serious solution would require you to eliminate any coastal areas from the map before considering the shape of a district. You might also eliminate the state boundaries also.
+
+This forces us to consider a different metric, as well, the fractal dimension of any interior boundaries of a Congressional district.
+
+```{r create-coastal boundaries, eval=FALSE}
+all_districts                          %>%
+  st_union                             -> coast_line
+coast_line                             %>%
+  plot
+```
+
+```{r create-state-boundaries}
+create_interior_boundaries <- function(district_number) {
+  state_fips <- substr(district_number, 1, 2)
+  all_districts                        %>%
+    filter(STATEFP==state_fips)        %>%
+    st_union                           %>%
+    st_boundary                        %>%
+    st_geometry                        -> state_boundary
+  
+  all_districts                        %>%
+    filter(GEOID==district_number)     %>%
+    select(geometry)                   %>%
+    st_boundary                        %>%
+    st_geometry                           -> district_boundary
+  
+  district_boundary                    %>%
+    st_difference(state_boundary)      %>%
+    st_segmentize(50)                  -> interior_boundary
+  
+  district_boundary                    %>%
+    st_intersection(state_boundary)    -> exterior_boundary
+  
+  state_boundary                       %>%
+    st_difference(district_boundary)   -> state_remnants
+  
+  st_sf(
+    i=letters[1:3],
+    geometry=c(
+      interior_boundary,
+      exterior_boundary,
+      state_remnants))
+  
 }
+
+full_map <- create_interior_boundaries(worst_districts[1]) 
+full_map                               %>%
+    ggplot                              +
+    geom_sf(aes(color=i))               + 
+    theme(legend.position="none")      
 ```
 
-You can convert from latitude/longitude to meters north/south and east/west using the ESPG:2264 transform.
-
-Experiment with transforms.
-
-```{r transforms}
+```{r fractal-dimension}
+full_map[1, ]                          %>%
+  st_coordinates                       %>%
+  thin(factor=2)                       %>%
+```
+```{r transforms, eval=FALSE}
 m <- st_transform(all_districts, 2264)
 
-m %>%
-  filter(GEOID==4208) %>%
-  ggplot() +
-  geom_sf(fill="gray")
-
-# (floor((long + 180)/6) %% 60) + 1 to get UTM zone.
-# EPSG:2264
-# st_make_grid, st_segmentize, st_coordinates
-```
-
-```{r more}
-m %>%
-  filter(GEOID==4208) %>%
-  st_coordinates %>%
-  dim
-
-m %>%
-  filter(GEOID==4208) %>%
   st_segmentize(500) %>%
   st_coordinates %>%
-  dim
-
-m %>%
-  filter(GEOID==4208) %>%
-  st_segmentize(50) %>%
-  st_coordinates %>%
-  dim
-
-m %>%
-  filter(GEOID==4208) %>%
-  st_segmentize(5) %>%
-  st_coordinates %>%
-  dim
-
-m %>%
-  filter(GEOID==4208) %>%
-  st_segmentize(500) %>%
-  st_coordinates %>%
-  plot(pch=".",col="gray")
-
-m %>%
-  filter(GEOID==4208) %>%
-  st_coordinates %>%
-  points(col="red", pch=".", cex=3)
-
-
-calculate_distance <- function(geo_mat) {
-  n <- dim(geo_mat)[1]
-  dx <- geo_mat[, 1]-geo_mat[c(2:n, 1), 1]  
-  dy <- geo_mat[, 2]-geo_mat[c(2:n, 1), 2]  
-  sum((dx^2+dy^2)^0.5)/1000
-}
-
-all_districts %>%
-  filter(GEOID==4208) %>%
-  st_length
-
-m %>%
-  filter(GEOID==4208) %>%
-  st_coordinates %>%
-  calculate_distance
-
-m %>%
-  filter(GEOID==4208) %>%
-  st_segmentize(5) %>%
-  st_coordinates %>%
-  calculate_distance
-
 halve <- function(x, pow) {
   n <- dim(x)[1]
   i <- seq(1, n, by=2^pow)
@@ -300,6 +282,12 @@ m %>%
   halve(1) %>%
   calculate_distance
 
+```
+
+```{r more-cases, eval=FALSE}
+highlight_district("3901")
+highlight_district("2403")
+highlight_district("2201")
 ```
 
 Save everything for possible later use.
