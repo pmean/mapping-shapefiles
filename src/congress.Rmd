@@ -8,6 +8,7 @@ output: html_document
 ```{r prelims}
 library(ggmap)
 library(ggplot2)
+library(geosphere)
 library(magrittr)
 library(maptools)
 library(rvest)
@@ -237,18 +238,11 @@ create_interior_boundaries <- function(district_number) {
     st_difference(state_boundary)      %>%
     st_segmentize(50)                  -> interior_boundary
   
-  district_boundary                    %>%
-    st_intersection(state_boundary)    -> exterior_boundary
-  
-  state_boundary                       %>%
-    st_difference(district_boundary)   -> state_remnants
-  
   st_sf(
-    i=letters[1:3],
+    i=letters[1:2],
     geometry=c(
       interior_boundary,
-      exterior_boundary,
-      state_remnants))
+      state_boundary))
   
 }
 
@@ -259,29 +253,98 @@ full_map                               %>%
     theme(legend.position="none")      
 ```
 
-```{r fractal-dimension}
-full_map[1, ]                          %>%
-  st_coordinates                       %>%
-  thin(factor=2)                       %>%
-```
-```{r transforms, eval=FALSE}
-m <- st_transform(all_districts, 2264)
-
-  st_segmentize(500) %>%
-  st_coordinates %>%
-halve <- function(x, pow) {
-  n <- dim(x)[1]
-  i <- seq(1, n, by=2^pow)
-  x[i, ]
+```{r fractal-dimension, eval=FALSE}
+for (iw in 1:10) {
+  full_map <- create_interior_boundaries(worst_districts[iw]) 
+  full_map                               %>%
+    ggplot                                +
+    geom_sf(aes(color=i))                 + 
+    theme(legend.position="none")        -> gm
+  plot(gm)
 }
+```
 
-m %>%
-  filter(GEOID==4208) %>%
-  st_segmentize(5) %>%
-  st_coordinates %>%
-  halve(1) %>%
-  calculate_distance
+```{r boxes}
+sw_corner <- function(gmap) {
+  bb <- st_bbox(gmap)
+  return(data.frame(x=bb$xmin, y=bb$ymin))
+}
+se_corner <- function(gmap) {
+  bb <- st_bbox(gmap)
+  return(data.frame(x=bb$xmax, y=bb$ymin))
+}
+nw_corner <- function(gmap) {
+  bb <- st_bbox(gmap)
+  return(data.frame(x=bb$xmin, y=bb$ymax))
+}
+ne_corner <- function(gmap) {
+  bb <- st_bbox(gmap)
+  return(data.frame(x=bb$xmax, y=bb$ymax))
+}
+map_middle <- function(gmap) {
+  bb <- st_bbox(gmap)
+  mx <- (bb$xmin+bb$xmax)/2
+  my <- (bb$ymin+bb$ymax)/2
+  return(data.frame(x=mx, y=my))
+}
+full_map[2, ] %>%
+  st_centroid %>%
+  st_coordinates -> ce
+plot(full_map)
+text(sw_corner(full_map),"SW")
+text(se_corner(full_map),"SE")
+text(nw_corner(full_map),"NW")
+text(ne_corner(full_map),"NE")
+text(map_middle(full_map), "MIDDLE")
+distm(sw_corner(full_map), se_corner(full_map))
+distm(nw_corner(full_map), ne_corner(full_map))
+distm(sw_corner(full_map), nw_corner(full_map))
+distm(se_corner(full_map), ne_corner(full_map))
+box_vertices <- matrix(-1, 5, 2)
+box_vertices[1,  ] <- as.matrix(sw_corner(full_map))
+box_vertices[3,  ] <- destPoint(box_vertices[1, ],  45, 100000*sqrt(2))
+box_vertices[5,  ] <- box_vertices[1,  ]
 
+box_vertices[2, 1] <- box_vertices[1, 1]
+box_vertices[2, 2] <- box_vertices[3, 2]
+
+box_vertices[4, 1] <- box_vertices[3, 1]
+box_vertices[4, 2] <- box_vertices[5, 2]
+
+print(box_vertices)
+print(se_corner(full_map))
+dimnames(box_vertices) <- list(NULL, c("x", "y"))
+lines(box_vertices)
+
+box_vertices[1,  ] <- box_vertices[3,  ]
+box_vertices[3,  ] <- destPoint(box_vertices[1, ],  45, 100000*sqrt(2))
+box_vertices[5,  ] <- box_vertices[1,  ]
+
+box_vertices[2, 1] <- box_vertices[1, 1]
+box_vertices[2, 2] <- box_vertices[3, 2]
+
+box_vertices[4, 1] <- box_vertices[3, 1]
+box_vertices[4, 2] <- box_vertices[5, 2]
+
+print(box_vertices)
+print(se_corner(full_map))
+dimnames(box_vertices) <- list(NULL, c("x", "y"))
+lines(box_vertices)
+
+box_vertices[1,  ] <- box_vertices[3,  ]
+box_vertices[3,  ] <- destPoint(box_vertices[1, ],  45, 100000*sqrt(2))
+box_vertices[5,  ] <- box_vertices[1,  ]
+
+box_vertices[2, 1] <- box_vertices[1, 1]
+box_vertices[2, 2] <- box_vertices[3, 2]
+
+box_vertices[4, 1] <- box_vertices[3, 1]
+box_vertices[4, 2] <- box_vertices[5, 2]
+
+print(box_vertices)
+print(se_corner(full_map))
+dimnames(box_vertices) <- list(NULL, c("x", "y"))
+lines(box_vertices)
 ```
 
 ```{r more-cases, eval=FALSE}
