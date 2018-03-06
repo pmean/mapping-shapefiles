@@ -346,6 +346,10 @@ print(se_corner(full_map))
 dimnames(box_vertices) <- list(NULL, c("x", "y"))
 lines(box_vertices)
 st_crosses(st_linestring(box_vertices), full_map[2, ], sparse=FALSE)
+st_relate(st_linestring(box_vertices), full_map[2, ]) # FF1FFF1F2
+st_relate(full_map[2, ], st_linestring(box_vertices))
+st_relate(full_map[1, ], st_linestring(box_vertices))
+
 ```
 
 ```{r more-cases, eval=FALSE}
