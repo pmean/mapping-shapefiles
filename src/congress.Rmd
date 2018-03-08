@@ -118,7 +118,7 @@ https://dcl-2017-01.github.io/curriculum/notes/spatial-vis.html
 
 and note the installation instructions at the very top of the page.
 
-```{r built-in-tools}
+```{r built-in-tools, eval=FALSE}
 all_districts                          %>%
   filter(GEOID==la01)                  %>%
   st_length                            %>%
@@ -182,7 +182,7 @@ all_districts                          %>%
   use_series(GEOID)                    %>%
   as.character                         -> worst_districts
 
-highlight_district(worst_districts[1])
+# highlight_district(worst_districts[1])
 ```
 
 Surprise, it's Alaska, which has only one Congressional district. Since gerrymandering is impossible in states like Alaska, you need to remove them before further analysis.
@@ -203,7 +203,7 @@ multirep_districts                     %>%
   use_series(GEOID)                    %>%
   as.character                         -> worst_districts
 
-highlight_district(worst_districts[1])
+# highlight_district(worst_districts[1])
 ```
 
 Well, that's a very irregular shaped district, but at least half of the irregular shape was the coastline, which was drawn not by the legislatures, but by God. I would not think of accusing God of gerrymandering.
@@ -247,10 +247,10 @@ create_interior_boundaries <- function(district_number) {
 }
 
 full_map <- create_interior_boundaries(worst_districts[1]) 
-full_map                               %>%
-    ggplot                              +
-    geom_sf(aes(color=i))               + 
-    theme(legend.position="none")      
+# full_map                               %>%
+#    ggplot                              +
+#    geom_sf(aes(color=i))               + 
+#    theme(legend.position="none")      
 ```
 
 Now the interior boundary is no longer a multipolygon. It is a multiline (often just a single line). How do you measure the irregularity of a line? The fractal dimension is one way. There are several ways to measure the fractal dimension, but box counting is the easiest and most intuitive.
@@ -371,8 +371,9 @@ Dividing a box in half means dividing one big square into four smaller squares. 
 
 Once you start dividing the bounding box in half, you need a way to reconstruct the southeast and northwest corners.
 
+All of this work culminates in the count_boxes function
 
-```{r continuation}
+```{r count-boxes}
 count_boxes <- function(full_map, draw_graph=TRUE) {
   corners <- square_bounding_box(full_map[1, ])
   corners <- quarter_split(corners)
@@ -401,13 +402,12 @@ count_boxes <- function(full_map, draw_graph=TRUE) {
 ```
 
 ```{r fractal-dimension}
-for (iw in 9:10) {
-  full_map <- create_interior_boundaries(worst_districts[iw]) 
-  full_map                               %>%
-    ggplot                                +
-    geom_sf(aes(color=i))                 + 
-    theme(legend.position="none")        -> gm
-  plot(gm)
+district_list <- sort(unique(multirep_districts$GEOID))
+n_districts <- length(district_list)
+for (i in 1:n_districts) {
+  district_number <- district_list[i]
+  fn <- paste0("~/mapping-shapefiles/results/d", district_number, "_%02d.bmp")
+  bmp(file=fn)
   bc <- count_boxes(full_map)
   print(bc)
   plot(1:10, log2(bc))
@@ -415,6 +415,9 @@ for (iw in 9:10) {
   abline(log_fit)
   title(round(coef(log_fit)[2],2))
   print(log_fit)
+  dev.off()
+  fn <- "~/mapping-shapefiles/results/all_districts.csv"
+  write.csv(data.frame(d=district_number, x=1:10, y=bc), file=fn, append=TRUE)
 }
 ```
 
