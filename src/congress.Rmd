@@ -253,18 +253,17 @@ full_map                               %>%
     theme(legend.position="none")      
 ```
 
-```{r fractal-dimension, eval=FALSE}
-for (iw in 1:10) {
-  full_map <- create_interior_boundaries(worst_districts[iw]) 
-  full_map                               %>%
-    ggplot                                +
-    geom_sf(aes(color=i))                 + 
-    theme(legend.position="none")        -> gm
-  plot(gm)
-}
-```
+Now the interior boundary is no longer a multipolygon. It is a multiline (often just a single line). How do you measure the irregularity of a line? The fractal dimension is one way. There are several ways to measure the fractal dimension, but box counting is the easiest and most intuitive.
 
-```{r boxes}
+Draw a grid boxes of size X and see how many of them include the interior boundary. Now cut the size of the box in half and see how many include the interior bounday.
+
+For a straight line, cutting the box size in half leads to a doubling of the number of boxes. But a line that zigs and zags all about could have as much as a quadrupling of the number of boxes.
+
+Cut the size of the box in half and repeat. Do you see a doubling in the number of boxes that contain the interior boundary, a quadrupling, or something in between. Cut the box size in half yet again and see what happens.
+
+Here are some functions that help with box counting.
+
+```{r box-counting-functions}
 sw_corner <- function(gmap) {
   bb <- st_bbox(gmap)
   return(data.frame(x=bb$xmin, y=bb$ymin))
@@ -287,6 +286,28 @@ map_middle <- function(gmap) {
   my <- (bb$ymin+bb$ymax)/2
   return(data.frame(x=mx, y=my))
 }
+
+calculate_diagonal_distance <- function(full_map) {
+  d1 <- distm(sw_corner(full_map[1, ]), se_corner(full_map[1, ]))
+  d2 <- distm(nw_corner(full_map[1, ]), ne_corner(full_map[1, ]))
+  d3 <- distm(sw_corner(full_map[1, ]), nw_corner(full_map[1, ]))
+  d4 <- distm(se_corner(full_map[1, ]), ne_corner(full_map[1, ]))
+  return(sqrt(2)*max(d1, d2, d3, d4))
+}
+
+square_bounding_box <- function(full_map) {
+  dmax <- calculate_diagonal_distance(full_map)
+  corners <- matrix(-1, nrow=1, ncol=6)
+  dimnames(corners) <- list(NULL, c("x1", "y1", "x2", "y2", "x3", "y3"))
+  corners[1, c("x1", "y1")] <- unlist(sw_corner(full_map[1, ]))
+  corners[1, c("x3", "y3")] <- 
+    destPoint(sw_corner(full_map[1, ]), 45, 1.1*dmax)
+  corners[1, c("x2", "y2")] <- 
+    (corners[1, c("x1", "y1")] + 
+     corners[1, c("x3", "y3")] )/ 2
+  return(corners)
+}
+
 make_box <- function(corners, i) {
   box_vertices <- matrix(-1, 5, 2)
   box_vertices[1,  ] <- corners[i, c("x1", "y1")]
@@ -301,24 +322,6 @@ make_box <- function(corners, i) {
   dimnames(box_vertices) <- list(NULL, c("x", "y"))
   return(box_vertices)
 }
-
-d1 <- distm(sw_corner(full_map[1, ]), se_corner(full_map[1, ]))
-d2 <- distm(nw_corner(full_map[1, ]), ne_corner(full_map[1, ]))
-d3 <- distm(sw_corner(full_map[1, ]), nw_corner(full_map[1, ]))
-d4 <- distm(se_corner(full_map[1, ]), ne_corner(full_map[1, ]))
-dmax <- 1.1*sqrt(2)*max(d1, d2, d3, d4)
-
-```
-
-```{r continuation}
-corners <- matrix(-1, nrow=1, ncol=6)
-dimnames(corners) <- list(NULL, c("x1", "y1", "x2", "y2", "x3", "y3"))
-corners[1, c("x1", "y1")] <- unlist(sw_corner(full_map[1, ]))
-corners[1, c("x3", "y3")] <- destPoint(sw_corner(full_map[1, ]), 45, dmax)
-corners[1, c("x2", "y2")] <- 
-  (corners[1, c("x1", "y1")] + 
-   corners[1, c("x3", "y3")] )/ 2
-
 quarter_split <- function(corners) {
   n <- dim(corners)[1]
   new_corners <- matrix(-1, 4*n, 6)
@@ -350,26 +353,68 @@ quarter_split <- function(corners) {
      new_corners[ , c("x3", "y3")]) / 2
   return(new_corners)
 }
-# The 1.1 is a fudge factor to insure that the entire graph is covered.
-corners <- quarter_split(corners)
-box_count <- rep(-1, 10)
-for (i in 1:10 ) {
-corners <- quarter_split(corners)
-par(pty="s")
-n <- dim(corners)[1]
-relate_code <- rep("XXX", n)
-for (i in 1:n) {
-  boxi <- st_polygon(list(make_box(corners, i)))
-  relate_code[i] <- st_relate(boxi, full_map[1, ])
+
+```
+
+
+The bounding box (bbox) is the smallest rectangle that contains your geopgraphic object. In our case, the geographic object is the interior boundary of the Congressional district. The following functions give the four corners and the center of the bounding box.
+
+You can use the distm function to calculate the lengths of the top, bottom, left, and right sides of the bounding box. Because of the curvature of the earth, the top of the bounding box is slightly smaller than the bottom (at least in the northern hemisphere).
+
+The longest side of the bounding box times the square root of 2 is the length of the diagonal of the smallest square that contains the interior boundary.
+
+The square bounding box uses the destPoint function to travel northeast from the southwest corner of the bounding box to a location that represents the northeast corner of the smallest square that contains the interior boundary. Because of the curvature of the earth, I have had to include a fudge factor to insure that the square bounding box is big enough. Better to have it a bit too big than a bit too small.
+
+The columns x1, y1 represent the longitude and latitude of the southwest corner; x2, y2 represent the center, and x3, y3 represent the northeast corner.
+
+Dividing a box in half means dividing one big square into four smaller squares. This function does the tedious job of division.
+
+Once you start dividing the bounding box in half, you need a way to reconstruct the southeast and northwest corners.
+
+
+```{r continuation}
+count_boxes <- function(full_map, draw_graph=TRUE) {
+  corners <- square_bounding_box(full_map[1, ])
+  corners <- quarter_split(corners)
+  box_count <- rep(-1, 10)
+  for (j in 1:10) {
+    corners <- quarter_split(corners)
+    par(pty="s")
+    n <- dim(corners)[1]
+    relate_code <- rep("XXX", n)
+    for (i in 1:n) {
+      boxi <- st_polygon(list(make_box(corners, i)))
+      relate_code[i] <- st_relate(boxi, full_map[1, ])
+    }
+    keep <- relate_code!="FF2FF1102"
+    corners <- corners[keep, ]
+    box_count[j] <- sum(keep)
+    if (draw_graph) {
+      plot(full_map[1, ])
+      for (i in 1:dim(corners)[1]) {
+        lines(make_box(corners, i))
+      }
+    }
+  }
+  return(box_count)
 }
-corners <- corners[relate_code!="FF2FF1102", ]
-box_count[i] <- sum(relate_code!="FF2FF1102")
-plot(full_map[1, ])
-for (i in 1:dim(corners)[1]) {lines(make_box(corners, i))}
-cat("\nn = ")
-cat(n)
-cat(", box count = ")
-cat(box_count[i])
+```
+
+```{r fractal-dimension}
+for (iw in 9:10) {
+  full_map <- create_interior_boundaries(worst_districts[iw]) 
+  full_map                               %>%
+    ggplot                                +
+    geom_sf(aes(color=i))                 + 
+    theme(legend.position="none")        -> gm
+  plot(gm)
+  bc <- count_boxes(full_map)
+  print(bc)
+  plot(1:10, log2(bc))
+  log_fit <- lm(log2(bc)~c(1:10))
+  abline(log_fit)
+  title(round(coef(log_fit)[2],2))
+  print(log_fit)
 }
 ```
 
