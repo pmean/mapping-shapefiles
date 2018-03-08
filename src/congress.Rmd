@@ -287,75 +287,90 @@ map_middle <- function(gmap) {
   my <- (bb$ymin+bb$ymax)/2
   return(data.frame(x=mx, y=my))
 }
-full_map[2, ] %>%
-  st_centroid %>%
-  st_coordinates -> ce
-plot(full_map)
-text(sw_corner(full_map),"SW")
-text(se_corner(full_map),"SE")
-text(nw_corner(full_map),"NW")
-text(ne_corner(full_map),"NE")
-text(map_middle(full_map), "MIDDLE")
-distm(sw_corner(full_map), se_corner(full_map))
-distm(nw_corner(full_map), ne_corner(full_map))
-distm(sw_corner(full_map), nw_corner(full_map))
-distm(se_corner(full_map), ne_corner(full_map))
-box_vertices <- matrix(-1, 5, 2)
-box_vertices[1,  ] <- as.matrix(sw_corner(full_map))
-box_vertices[3,  ] <- destPoint(box_vertices[1, ],  45, 100000*sqrt(2))
-box_vertices[5,  ] <- box_vertices[1,  ]
+make_box <- function(corners, i) {
+  box_vertices <- matrix(-1, 5, 2)
+  box_vertices[1,  ] <- corners[i, c("x1", "y1")]
+  box_vertices[3,  ] <- corners[i, c("x3", "y3")]
+  box_vertices[5,  ] <- box_vertices[1,  ]
 
-box_vertices[2, 1] <- box_vertices[1, 1]
-box_vertices[2, 2] <- box_vertices[3, 2]
+  box_vertices[2, 1] <- box_vertices[1, 1]
+  box_vertices[2, 2] <- box_vertices[3, 2]
 
-box_vertices[4, 1] <- box_vertices[3, 1]
-box_vertices[4, 2] <- box_vertices[5, 2]
+  box_vertices[4, 1] <- box_vertices[3, 1]
+  box_vertices[4, 2] <- box_vertices[5, 2]
+  dimnames(box_vertices) <- list(NULL, c("x", "y"))
+  return(box_vertices)
+}
 
-print(box_vertices)
-print(se_corner(full_map))
-dimnames(box_vertices) <- list(NULL, c("x", "y"))
-lines(box_vertices)
-
-box_vertices[1,  ] <- box_vertices[3,  ]
-box_vertices[3,  ] <- destPoint(box_vertices[1, ],  45, 100000*sqrt(2))
-box_vertices[5,  ] <- box_vertices[1,  ]
-
-box_vertices[2, 1] <- box_vertices[1, 1]
-box_vertices[2, 2] <- box_vertices[3, 2]
-
-box_vertices[4, 1] <- box_vertices[3, 1]
-box_vertices[4, 2] <- box_vertices[5, 2]
-
-print(box_vertices)
-print(se_corner(full_map))
-dimnames(box_vertices) <- list(NULL, c("x", "y"))
-lines(box_vertices)
-
-box_vertices[1,  ] <- box_vertices[3,  ]
-box_vertices[3,  ] <- destPoint(box_vertices[1, ],  45, 100000*sqrt(2))
-box_vertices[5,  ] <- box_vertices[1,  ]
-
-box_vertices[2, 1] <- box_vertices[1, 1]
-box_vertices[2, 2] <- box_vertices[3, 2]
-
-box_vertices[4, 1] <- box_vertices[3, 1]
-box_vertices[4, 2] <- box_vertices[5, 2]
-
-print(box_vertices)
-print(se_corner(full_map))
-dimnames(box_vertices) <- list(NULL, c("x", "y"))
-lines(box_vertices)
-st_crosses(st_linestring(box_vertices), full_map[2, ], sparse=FALSE)
-st_relate(st_linestring(box_vertices), full_map[2, ]) # FF1FFF1F2
-st_relate(full_map[2, ], st_linestring(box_vertices))
-st_relate(full_map[1, ], st_linestring(box_vertices))
+d1 <- distm(sw_corner(full_map[1, ]), se_corner(full_map[1, ]))
+d2 <- distm(nw_corner(full_map[1, ]), ne_corner(full_map[1, ]))
+d3 <- distm(sw_corner(full_map[1, ]), nw_corner(full_map[1, ]))
+d4 <- distm(se_corner(full_map[1, ]), ne_corner(full_map[1, ]))
+dmax <- 1.1*sqrt(2)*max(d1, d2, d3, d4)
 
 ```
 
-```{r more-cases, eval=FALSE}
-highlight_district("3901")
-highlight_district("2403")
-highlight_district("2201")
+```{r continuation}
+corners <- matrix(-1, nrow=1, ncol=6)
+dimnames(corners) <- list(NULL, c("x1", "y1", "x2", "y2", "x3", "y3"))
+corners[1, c("x1", "y1")] <- unlist(sw_corner(full_map[1, ]))
+corners[1, c("x3", "y3")] <- destPoint(sw_corner(full_map[1, ]), 45, dmax)
+corners[1, c("x2", "y2")] <- 
+  (corners[1, c("x1", "y1")] + 
+   corners[1, c("x3", "y3")] )/ 2
+
+quarter_split <- function(corners) {
+  n <- dim(corners)[1]
+  new_corners <- matrix(-1, 4*n, 6)
+  dimnames(new_corners)[[2]] <-
+    c("x1", "y1", "x2", "y2", "x3", "y3")
+
+  new_corners[4*(1:n)-3, "x1"] <- corners[ , "x1"]
+  new_corners[4*(1:n)-3, "y1"] <- corners[ , "y1"]
+  new_corners[4*(1:n)-3, "x3"] <- corners[ , "x2"]
+  new_corners[4*(1:n)-3, "y3"] <- corners[ , "y2"]
+
+  new_corners[4*(1:n)-2, "x1"] <- corners[ , "x1"]
+  new_corners[4*(1:n)-2, "y1"] <- corners[ , "y2"]
+  new_corners[4*(1:n)-2, "x3"] <- corners[ , "x2"]
+  new_corners[4*(1:n)-2, "y3"] <- corners[ , "y3"]
+
+  new_corners[4*(1:n)-1, "x1"] <- corners[ , "x2"]
+  new_corners[4*(1:n)-1, "y1"] <- corners[ , "y1"]
+  new_corners[4*(1:n)-1, "x3"] <- corners[ , "x3"]
+  new_corners[4*(1:n)-1, "y3"] <- corners[ , "y2"]
+
+  new_corners[4*(1:n)  , "x1"] <- corners[ , "x2"]
+  new_corners[4*(1:n)  , "y1"] <- corners[ , "y2"]
+  new_corners[4*(1:n)  , "x3"] <- corners[ , "x3"]
+  new_corners[4*(1:n)  , "y3"] <- corners[ , "y3"]
+  
+  new_corners[ , c("x2", "y2")] <- 
+    (new_corners[ , c("x1", "y1")] + 
+     new_corners[ , c("x3", "y3")]) / 2
+  return(new_corners)
+}
+# The 1.1 is a fudge factor to insure that the entire graph is covered.
+corners <- quarter_split(corners)
+box_count <- rep(-1, 10)
+for (i in 1:10 ) {
+corners <- quarter_split(corners)
+par(pty="s")
+n <- dim(corners)[1]
+relate_code <- rep("XXX", n)
+for (i in 1:n) {
+  boxi <- st_polygon(list(make_box(corners, i)))
+  relate_code[i] <- st_relate(boxi, full_map[1, ])
+}
+corners <- corners[relate_code!="FF2FF1102", ]
+box_count[i] <- sum(relate_code!="FF2FF1102")
+plot(full_map[1, ])
+for (i in 1:dim(corners)[1]) {lines(make_box(corners, i))}
+cat("\nn = ")
+cat(n)
+cat(", box count = ")
+cat(box_count[i])
+}
 ```
 
 Save everything for possible later use.
