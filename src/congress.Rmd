@@ -374,11 +374,11 @@ Once you start dividing the bounding box in half, you need a way to reconstruct 
 All of this work culminates in the count_boxes function
 
 ```{r count-boxes}
-count_boxes <- function(full_map, draw_graph=TRUE) {
+count_boxes <- function(full_map, draw_graph=TRUE, n_bc=7) {
   corners <- square_bounding_box(full_map[1, ])
   corners <- quarter_split(corners)
-  box_count <- rep(-1, 10)
-  for (j in 1:10) {
+  box_count <- rep(-1, n_bc)
+  for (j in 1:n_bc) {
     corners <- quarter_split(corners)
     par(pty="s")
     n <- dim(corners)[1]
@@ -406,18 +406,21 @@ district_list <- sort(unique(multirep_districts$GEOID))
 n_districts <- length(district_list)
 for (i in 1:n_districts) {
   district_number <- district_list[i]
-  fn <- paste0("~/mapping-shapefiles/results/d", district_number, "_%02d.bmp")
-  bmp(file=fn)
+  full_map <- create_interior_boundaries(district_number) 
+  fn <- paste0("~/mapping-shapefiles/results/d", district_number, "_%02d.png")
+  png(file=fn)
   bc <- count_boxes(full_map)
+  n_bc <- length(bc)
   print(bc)
-  plot(1:10, log2(bc))
-  log_fit <- lm(log2(bc)~c(1:10))
+  plot(1:n_bc, log2(bc))
+  log_fit <- lm(log2(bc)~c(1:n_bc))
   abline(log_fit)
   title(round(coef(log_fit)[2],2))
   print(log_fit)
+  plot(full_map)
   dev.off()
-  fn <- "~/mapping-shapefiles/results/all_districts.csv"
-  write.csv(data.frame(d=district_number, x=1:10, y=bc), file=fn, append=TRUE)
+  fn <- paste0("~/mapping-shapefiles/results/d", district_number, ".csv")
+  write.csv(data.frame(d=district_number, x=1:n_bc, y=bc), file=fn)
 }
 ```
 
