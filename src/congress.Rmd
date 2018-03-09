@@ -387,7 +387,7 @@ count_boxes <- function(full_map, draw_graph=TRUE, n_bc=7) {
       boxi <- st_polygon(list(make_box(corners, i)))
       relate_code[i] <- st_relate(boxi, full_map[1, ])
     }
-    keep <- relate_code!="FF2FF1102"
+    keep <- relate_code!="FF2FF1102" & relate_code!="FF2FF11F2"
     corners <- corners[keep, ]
     box_count[j] <- sum(keep)
     if (draw_graph) {
@@ -404,7 +404,7 @@ count_boxes <- function(full_map, draw_graph=TRUE, n_bc=7) {
 ```{r fractal-dimension}
 district_list <- sort(unique(multirep_districts$GEOID))
 n_districts <- length(district_list)
-for (i in 1:n_districts) {
+for (i in 6:n_districts) {
   district_number <- district_list[i]
   full_map <- create_interior_boundaries(district_number) 
   fn <- paste0("~/mapping-shapefiles/results/d", district_number, "_%02d.png")
