@@ -119,7 +119,7 @@ https://dcl-2017-01.github.io/curriculum/notes/spatial-vis.html
 
 and note the installation instructions at the very top of the page.
 
-```{r built-in-tools}
+```{r built-in-tools, eval=FALSE}
 all_districts                          %>%
   filter(GEOID==la01)                  %>%
   st_length                            %>%
@@ -184,7 +184,7 @@ all_districts                          %>%
   use_series(GEOID)                    %>%
   as.character                         -> worst_districts
 
-highlight_district(worst_districts[1])
+# highlight_district(worst_districts[1])
 ```
 
 Surprise, it's Alaska, which has only one Congressional district. Since gerrymandering is impossible in states like Alaska, you need to remove them before further analysis.
@@ -207,7 +207,7 @@ multirep_districts                     %>%
   use_series(GEOID)                    %>%
   as.character                         -> worst_districts
 
-highlight_district(worst_districts[1])
+# highlight_district(worst_districts[1])
 ```
 
 Well, that's a very irregular shaped district, but at least half of the irregular shape was the coastline, which was drawn not by the legislatures, but by God. I would not think of accusing God of gerrymandering.
@@ -251,10 +251,10 @@ create_interior_boundaries <- function(district_number) {
 }
 
 full_map <- create_interior_boundaries(worst_districts[1]) 
-full_map                               %>%
-    ggplot                              +
-    geom_sf(aes(color=i))               + 
-    theme(legend.position="none")      
+# full_map                               %>%
+#    ggplot                              +
+#    geom_sf(aes(color=i))               + 
+#    theme(legend.position="none")      
 ```
 
 Now the interior boundary is no longer a multipolygon. It is a multiline (often just a single line). How do you measure the irregularity of a line? The fractal dimension is one way. There are several ways to measure the fractal dimension, but box counting is the easiest and most intuitive.
@@ -375,13 +375,14 @@ Dividing a box in half means dividing one big square into four smaller squares. 
 
 Once you start dividing the bounding box in half, you need a way to reconstruct the southeast and northwest corners.
 
+All of this work culminates in the count_boxes function
 
-```{r continuation}
-count_boxes <- function(full_map, draw_graph=TRUE) {
+```{r count-boxes}
+count_boxes <- function(full_map, draw_graph=TRUE, n_bc=7) {
   corners <- square_bounding_box(full_map[1, ])
   corners <- quarter_split(corners)
-  box_count <- rep(-1, 10)
-  for (j in 1:10) {
+  box_count <- rep(-1, n_bc)
+  for (j in 1:n_bc) {
     corners <- quarter_split(corners)
     par(pty="s")
     n <- dim(corners)[1]
@@ -390,7 +391,7 @@ count_boxes <- function(full_map, draw_graph=TRUE) {
       boxi <- st_polygon(list(make_box(corners, i)))
       relate_code[i] <- st_relate(boxi, full_map[1, ])
     }
-    keep <- relate_code!="FF2FF1102"
+    keep <- relate_code!="FF2FF1102" & relate_code!="FF2FF11F2"
     corners <- corners[keep, ]
     box_count[j] <- sum(keep)
     if (draw_graph) {
@@ -405,20 +406,25 @@ count_boxes <- function(full_map, draw_graph=TRUE) {
 ```
 
 ```{r fractal-dimension}
-for (iw in 9:10) {
-  full_map <- create_interior_boundaries(worst_districts[iw]) 
-  full_map                               %>%
-    ggplot                                +
-    geom_sf(aes(color=i))                 + 
-    theme(legend.position="none")        -> gm
-  plot(gm)
+district_list <- sort(unique(multirep_districts$GEOID))
+n_districts <- length(district_list)
+for (i in 6:n_districts) {
+  district_number <- district_list[i]
+  full_map <- create_interior_boundaries(district_number) 
+  fn <- paste0("~/mapping-shapefiles/results/d", district_number, "_%02d.png")
+  png(file=fn)
   bc <- count_boxes(full_map)
+  n_bc <- length(bc)
   print(bc)
-  plot(1:10, log2(bc))
-  log_fit <- lm(log2(bc)~c(1:10))
+  plot(1:n_bc, log2(bc))
+  log_fit <- lm(log2(bc)~c(1:n_bc))
   abline(log_fit)
   title(round(coef(log_fit)[2],2))
   print(log_fit)
+  plot(full_map)
+  dev.off()
+  fn <- paste0("~/mapping-shapefiles/results/d", district_number, ".csv")
+  write.csv(data.frame(d=district_number, x=1:n_bc, y=bc), file=fn)
 }
 ```
 
