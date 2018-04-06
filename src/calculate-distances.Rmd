@@ -1,0 +1,64 @@
+---
+title: "Distance calculations"
+author: "Steve Simon"
+date: "April 3, 2018"
+output: html_document
+---
+
+```{r call-libraries}
+library(geosphere)
+library(ggmap)
+head(crime)
+```
+
+Pull off a subset.
+
+```{r subset}
+crime5 <- crime[1:5, c("lon", "lat")]
+crime500 <- crime[6:505, c("lon", "lat")]
+crime499 <- crime500[crime500$lat < 31, ]
+crime_distances <- distm(crime499, crime5)
+head(crime_distances)
+ggplot(crime499)                                   +
+  geom_text(
+    aes(x=lon, y=lat),
+    label="+",
+    color="gray")                                  +
+  geom_text(
+    data=crime5, 
+    aes(x=lon, y=lat),
+    label="*")                                     -> crime_map
+for (i in 1:5) {
+  crime_a <- crime499[crime_distances[, i] < 2000, ]
+  crime_map <- crime_map                           +
+    geom_text(
+      data=crime_a, 
+      aes(x=lon, y=lat),
+      label="O")
+}
+crime_map
+```
+
+Let's look closer.
+
+```{r closer-look}
+i <- 1
+for (i in 1:5) {
+  crime499$km <- trunc(crime_distances[, i]/1000)
+  crime_a <- crime499[crime_distances[, i] < 2000, ]
+  crime_b <- crime499[crime_distances[, i] < 8000, ]
+  ggplot(crime_a)                                  +
+    geom_text(
+      aes(x=lon, y=lat),
+      label="O")                                   +
+  geom_text(
+    data=crime5[i, ], 
+    aes(x=lon, y=lat),
+    label="*")                                     +
+  geom_text(
+    data=crime_b,
+    aes(x=lon, y=lat, label=km),
+    color="gray")                                  -> crime_map
+  plot(crime_map)
+}
+```

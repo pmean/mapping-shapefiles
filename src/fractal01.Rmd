@@ -1,0 +1,96 @@
+---
+title: "Sorting by fractal dimension"
+author: "Steve Simon"
+date: "March 12, 2018"
+output: html_document
+---
+
+WARNING!! The geom_sf function in ggplot2 is experimental and not yet part of the regular package (at least not at the time I wrote this, February 2018). You have to install a special version of ggplot2 using the RTools package. For details, go to
+
+https://dcl-2017-01.github.io/curriculum/notes/spatial-vis.html
+
+and note the installation instructions at the very top of the page.
+
+```{r prelims}
+library(ggmap)
+library(ggplot2)
+library(geosphere)
+library(magrittr)
+library(maptools)
+library(rvest)
+library(sf)
+library(tidyverse)
+library(viridis)
+```
+
+The fractal dimension was estimated by box counting and the results stored in csv files in the results subdirectory.
+
+```{r read-box-counts}
+pn <- "~/mapping-shapefiles/results"
+pa <- "*.csv"
+fn <- list.files(pn, pa)
+n <- length(fn)
+fd <- data.frame(district=rep(-1, n), fractal_dimension=rep(-1, n))
+for (i in 1:n) {
+  fr <- read.csv(paste(pn, fn[i], sep="/"), header=TRUE)
+  fd$district[i] <- fr$d[1]
+  fd$fractal_dimension[i] <- coef(lm(log2(y)~x, data=fr))[2]
+}
+fd$district <- paste0(ifelse(fd$district <= 999, "0", ""), fd$district) 
+fd %<>% arrange(desc(fractal_dimension))
+head(fd, 20)
+```
+
+The file used in this example, cb_2016_us_cd115_500k.shp, was downloaded from https://www.census.gov/geo/maps-data/data/cbf/cbf_cds.html.
+
+The 500K means that the scale is 1:500,000 which is the highest resolution available.
+
+```{r read-shapefiles}
+path_name <- "~/mapping-shapefiles/shp"
+file_name <- "cb_2016_us_cd115_500k.shp"
+path_name                              %>%
+  paste(file_name, sep="/")            %>%
+  st_read(stringsAsFactors=FALSE)      -> all_districts
+```
+
+Mapping functions
+
+```{r mapping}
+highlight_district <- function(district_number) {
+  state_fips_code <- substr(district_number, 1, 2)
+  district_string <- as.character(district_number)
+  all_districts                          %>%
+    mutate(fill_color=
+      ifelse(GEOID==district_number,
+        district_string, "others"))      -> single_district
+  single_district                        %>%
+    filter(STATEFP==state_fips_code)     %>%
+    ggplot()                              +
+    geom_sf(aes(fill=fill_color))         +
+    scale_fill_manual(
+      values=c("gray", "white"))          +
+    theme(legend.position="none")
+}
+isolate_district <- function(district_number) {
+  district_string <- as.character(district_number)
+  all_districts                          %>%
+    filter(GEOID==district_string)       %>%
+    ggplot()                              +
+    geom_sf(fill="gray")       
+}
+```
+
+```{r map-districts, fig.width=4, fig.height=4}
+for (i in 1:20) {
+  fd$district[i]                         %>%
+    highlight_district                   %>%
+    plot
+  fd$district[i]                         %>%
+    isolate_district                     %>%
+    plot
+}
+```
+
+```{r save-everything}
+save.image("~/mapping-shapefiles/data/fractal01.RData")
+```
