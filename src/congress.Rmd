@@ -38,6 +38,20 @@ The file used in this example, cb_2016_us_cd115_500k.shp, was downloaded from ht
 
 The 500K means that the scale is 1:500,000 which is the highest resolution available.
 
+The census files use a shapefile format. This is a rather complex system with at least three separate files constituting the shapefile. You can find a nice introduction at the Wikipedia page,
+
+https://en.wikipedia.org/wiki/Shapefile
+
+but note that there is some criticism of the shapefile standard,
+
+http://switchfromshapefile.org/
+
+The st_read function is part of the sf library. It reads a shape file and converts it to an sf object. An sf (simple features object) is a data frame where the last column is a list-column, an sfc object.
+
+The list column represents geographic features either as a single data points (POINT), multiple data points (MULITPOINT), a two-dimensional path (LINESTRING), multiple paths (MULTILINESTRING), a polygon (POLYGON), or multiple polygons (MULTIPOLYGON).
+
+The POLYGON and MULTIPOLYGON features can include holes, and there are complex rules for geographic features with holes.
+
 ```{r read}
 path_name <- "~/mapping-shapefiles/shp"
 list.files(path_name)
@@ -45,10 +59,35 @@ file_name <- "cb_2016_us_cd115_500k.shp"
 path_name                              %>%
   paste(file_name, sep="/")            %>%
   st_read(stringsAsFactors=FALSE)      -> all_districts
+```
+
+The sf object looks and acts like an ordinary data frame. But the last column is quite unusual.
+
+```{r sf}
 names(all_districts)
+table(all_districts$STATEFP)
+all_districts %>%
+  ggplot(aes(x=log10(ALAND))) +
+  geom_histogram(
+    binwidth=0.5, 
+    fill="white",
+    color="black")
+```
+
+```{r last-column}
+  la01 <- "2201"
+i <- which(all_districts$GEOID==la01)
+attributes(all_districts$geometry[i])
+attributes(all_districts$geometry[[i]])
+print.default(all_districts$geometry[i])
+print.default(all_districts$geometry[[i]])
 ```
 
 We'll start by looking at a congressional district in southern Louisiana, mostly because it has an interesting shape.
+
+Use the st_coordinates function to convert the geometry into lon/lat pairs. The various pieces of the Congressional district are identified by L1, L2, and L3. You can use L1 to identify whether the boundary in the multipolygon represents the exterior or an interior "hole." You can use L2 to identify the sequence of polygon in the multipolygon or of line in the multiline. If you have a mix of multipoygons and multilines, then you can use L3 to identify which is which.
+
+The tables show that there is only one simple feature (a multipolygon), that multipolygon consists of 
 
 ```{r extract}
 la01 <- "2201"
@@ -57,6 +96,9 @@ all_districts                          %>%
   st_coordinates                       -> geo_matrix
 
 head(geo_matrix)
+table(geo_matrix[ , "L1"])
+table(geo_matrix[ , "L2"])
+table(geo_matrix[ , "L3"])
 par(pty="s")
 plot(geo_matrix, type="l")
 ```
