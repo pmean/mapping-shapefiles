@@ -87,7 +87,7 @@ We'll start by looking at a congressional district in southern Louisiana, mostly
 
 Use the st_coordinates function to convert the geometry into lon/lat pairs. The various pieces of the Congressional district are identified by L1, L2, and L3. You can use L1 to identify whether the boundary in the multipolygon represents the exterior or an interior "hole." You can use L2 to identify the sequence of polygon in the multipolygon or of line in the multiline. If you have a mix of multipoygons and multilines, then you can use L3 to identify which is which.
 
-The tables show that there is only one simple feature (a multipolygon), that multipolygon consists of 
+The tables show that there is only one simple feature (because L3 always equals 1), that figure, a multipolygon, consists of a whole bunch of individual polygons (because L2 has many values), and there are no holes in any of the individual polygons (because L1 always equals 1).
 
 ```{r extract}
 la01 <- "2201"
@@ -99,6 +99,9 @@ head(geo_matrix)
 table(geo_matrix[ , "L1"])
 table(geo_matrix[ , "L2"])
 table(geo_matrix[ , "L3"])
+```
+
+```{r naive-plot}
 par(pty="s")
 plot(geo_matrix, type="l")
 ```
@@ -129,7 +132,6 @@ plot(meter_matrix, type="n")
 for (i in 1:max(geo_matrix[, "L2"])) {
   lines(meter_matrix[geo_matrix[, "L2"]==i,])
 }
-
 ```
 
 Calculating the perimeter is tricky when you have multiple polygons. You don't want to count the length of the stray lines when you jump from one island to another.
@@ -191,8 +193,6 @@ all_districts %<>% mutate(ratio=4*pi*area/perimeter^2) %>% arrange(ratio)
 
 Here is a simple graph that displays all the Congressional districts in a state, with one particular Congressional district highlighted.
 
-I want to pay special attention to the districts in Pennsylvania because they have been in the news a lot. The FIPS code for PA is 42.
-
 ```{r district-graphs}
 highlight_district <- function(district_number) {
   state_fips_code <- substr(district_number, 1, 2)
@@ -226,7 +226,7 @@ all_districts                          %>%
   use_series(GEOID)                    %>%
   as.character                         -> worst_districts
 
-# highlight_district(worst_districts[1])
+highlight_district(worst_districts[1])
 ```
 
 Surprise, it's Alaska, which has only one Congressional district. Since gerrymandering is impossible in states like Alaska, you need to remove them before further analysis.
@@ -249,7 +249,7 @@ multirep_districts                     %>%
   use_series(GEOID)                    %>%
   as.character                         -> worst_districts
 
-# highlight_district(worst_districts[1])
+highlight_district(worst_districts[1])
 ```
 
 Well, that's a very irregular shaped district, but at least half of the irregular shape was the coastline, which was drawn not by the legislatures, but by God. I would not think of accusing God of gerrymandering.
@@ -293,10 +293,10 @@ create_interior_boundaries <- function(district_number) {
 }
 
 full_map <- create_interior_boundaries(worst_districts[1]) 
-# full_map                               %>%
-#    ggplot                              +
-#    geom_sf(aes(color=i))               + 
-#    theme(legend.position="none")      
+full_map                               %>%
+  ggplot                              +
+  geom_sf(aes(color=i))               + 
+  theme(legend.position="none")      
 ```
 
 Now the interior boundary is no longer a multipolygon. It is a multiline (often just a single line). How do you measure the irregularity of a line? The fractal dimension is one way. There are several ways to measure the fractal dimension, but box counting is the easiest and most intuitive.
@@ -417,6 +417,10 @@ Dividing a box in half means dividing one big square into four smaller squares. 
 
 Once you start dividing the bounding box in half, you need a way to reconstruct the southeast and northwest corners.
 
+A nice overview of box counting as a measure of fractal dimension is on Wikipedia (https://en.wikipedia.org/wiki/Minkowski%E2%80%93Bouligand_dimension).
+
+The st_relate function computes the "DE9-IM relation between a pair of geometries." This is a very flexible way to compare two geometric features. It examines the dimensionality of the intersection of the interior/boundary/exterior of one geometric feature with the interior/boundary/exterior of another geometric feature. The possible values are 0, 1, 2, and F where F represents the empty set. A nice explanaiton of DE-9IM is at https://connect.boundlessgeo.com/docs/suite/4.6/dataadmin/pgAdvanced/de9im.html.
+
 All of this work culminates in the count_boxes function
 
 ```{r count-boxes}
@@ -450,7 +454,7 @@ count_boxes <- function(full_map, draw_graph=TRUE, n_bc=7) {
 ```{r fractal-dimension}
 district_list <- sort(unique(multirep_districts$GEOID))
 n_districts <- length(district_list)
-for (i in 6:n_districts) {
+for (district_number in worst_districts[1]) {
   district_number <- district_list[i]
   full_map <- create_interior_boundaries(district_number) 
   fn <- paste0("~/mapping-shapefiles/results/d", district_number, "_%02d.png")
